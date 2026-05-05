@@ -1,0 +1,482 @@
+```react
+import React, { useState, useEffect, useRef } from 'react';
+
+// --- Sound System ---
+const playSound = (type) => {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return;
+  
+  const ctx = new AudioContext();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+
+  if (type === 'correct') {
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(523.25, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(1046.50, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.3);
+  } else if (type === 'wrong') {
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(150, ctx.currentTime);
+    osc.frequency.linearRampToValueAtTime(50, ctx.currentTime + 0.2);
+    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.2);
+  } else if (type === 'click') {
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(800, ctx.currentTime);
+    gain.gain.setValueAtTime(0.05, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.2);
+  }
+};
+
+// --- Game Icons ---
+const ItemIcon = ({ type, size = "w-10 h-10 md:w-12 md:h-12" }) => {
+  switch (type) {
+    case 'acorn': return <span className={`${size} text-3xl md:text-4xl flex items-center justify-center drop-shadow-lg`}>🌰</span>;
+    case 'rock': return <span className={`${size} text-3xl md:text-4xl flex items-center justify-center drop-shadow-lg`}>🪨</span>;
+    case 'book': return <span className={`${size} text-3xl md:text-4xl flex items-center justify-center drop-shadow-[0_0_15px_rgba(59,130,246,0.8)]`}>📖</span>;
+    case 'shield': return <span className={`${size} text-3xl md:text-4xl flex items-center justify-center drop-shadow-[0_0_15px_rgba(34,211,238,0.8)]`}>🛡️</span>;
+    default: return null;
+  }
+};
+
+const SquirrelAvatar = ({ isDead = false }) => (
+  <div className="relative w-full h-full flex items-center justify-center scale-90 md:scale-100">
+    <svg viewBox="0 0 200 200" className={`w-full h-full drop-shadow-[0_5px_15px_rgba(0,0,0,0.4)] ${isDead ? 'grayscale blur-[1px]' : ''}`}>
+      <path d="M120 140 Q180 140 190 80 Q200 20 140 40 Q110 50 115 80" fill="#8B4513" stroke="#5D2E0A" strokeWidth="2" />
+      <path d="M75 50 Q65 10 85 45" fill="#8B4513" stroke="#5D2E0A" strokeWidth="2" />
+      <path d="M125 50 Q135 10 115 45" fill="#8B4513" stroke="#5D2E0A" strokeWidth="2" />
+      <ellipse cx="100" cy="135" rx="45" ry="55" fill="#A0522D" stroke="#5D2E0A" strokeWidth="2" />
+      <ellipse cx="100" cy="145" rx="30" ry="40" fill="#DEB887" opacity="0.8" />
+      <ellipse cx="70" cy="175" rx="15" ry="8" fill="#8B4513" stroke="#5D2E0A" strokeWidth="2" />
+      <ellipse cx="130" cy="175" rx="15" ry="8" fill="#8B4513" stroke="#5D2E0A" strokeWidth="2" />
+      <circle cx="100" cy="80" r="38" fill="#A0522D" stroke="#5D2E0A" strokeWidth="2" />
+      {isDead ? (
+        <>
+          <path d="M80 75 L90 85 M90 75 L80 85" stroke="black" strokeWidth="3" />
+          <path d="M110 75 L120 85 M120 75 L110 85" stroke="black" strokeWidth="3" />
+        </>
+      ) : (
+        <>
+          <circle cx="85" cy="75" r="6" fill="black" />
+          <circle cx="115" cy="75" r="6" fill="black" />
+        </>
+      )}
+      <circle cx="100" cy="85" r="4" fill="#333" />
+      <path d="M92 95 Q100 102 108 95" fill="none" stroke="#333" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  </div>
+);
+
+const MASTER_QUIZ_BANK = [
+    { q: 'Apple', a: 'Quả táo', options: ['Quả táo', 'Quả cam', 'Quả chuối'], icon: '🍎' },
+    { q: 'Banana', a: 'Quả chuối', options: ['Quả táo', 'Quả dâu', 'Quả chuối'], icon: '🍌' },
+    { q: 'Cat', a: 'Con mèo', options: ['Con chó', 'Con mèo', 'Con chuột'], icon: '🐱' },
+    { q: 'Dog', a: 'Con chó', options: ['Con chó', 'Con mèo', 'Con thỏ'], icon: '🐶' },
+    { q: 'Elephant', a: 'Con voi', options: ['Con voi', 'Con hổ', 'Con khỉ'], icon: '🐘' },
+    { q: 'Flower', a: 'Bông hoa', options: ['Cái cây', 'Bông hoa', 'Ngôi sao'], icon: '🌸' },
+    { q: 'Giraffe', a: 'Hươu cao cổ', options: ['Ngựa vằn', 'Hươu cao cổ', 'Sư tử'], icon: '🦒' },
+    { q: 'House', a: 'Ngôi nhà', options: ['Trường học', 'Bệnh viện', 'Ngôi nhà'], icon: '🏠' },
+    { q: 'Ice cream', a: 'Kem', options: ['Kẹo', 'Kem', 'Bánh'], icon: '🍦' },
+    { q: 'Juice', a: 'Nước ép', options: ['Nước ép', 'Sữa', 'Nước lọc'], icon: '🧃' },
+    { q: 'Lizard', a: 'Con thằn lằn', options: ['Con thằn lằn', 'Con rắn', 'Con ếch'], icon: '🦎' },
+    { q: 'Mountain', a: 'Ngọn núi', options: ['Dòng sông', 'Ngọn núi', 'Cánh đồng'], icon: '⛰️' },
+    { q: 'Ocean', a: 'Đại dương', options: ['Hồ nước', 'Suối', 'Đại dương'], icon: '🌊' },
+    { q: 'Sun', a: 'Mặt trời', options: ['Mặt trời', 'Mặt trăng', 'Ngôi sao'], icon: '☀️' },
+    { q: 'Umbrella', a: 'Cái ô', options: ['Cái mũ', 'Cái ô', 'Áo mưa'], icon: '☂️' }
+];
+
+const App = () => {
+  const [gameState, setGameState] = useState('menu');
+  const [viewMode, setViewMode] = useState('desktop'); 
+  const [isPaused, setIsPaused] = useState(false);
+  const [score, setScore] = useState(0); 
+  const [missedCount, setMissedCount] = useState(0); 
+  const [shieldActive, setShieldActive] = useState(false);
+  const [items, setItems] = useState([]);
+  const [activeLevelIdx, setActiveLevelIdx] = useState(0);
+  const [config, setConfig] = useState({ speed: 1.0, spawnRate: 2000 });
+  const [currentQuiz, setCurrentQuiz] = useState(null);
+  const [quizFeedback, setQuizFeedback] = useState(null); 
+  
+  const quizQueue = useRef([]);
+  const gameRef = useRef(null);
+  const squirrelRef = useRef(null);
+  const squirrelX = useRef(50);
+  const itemsRef = useRef([]);
+  const requestRef = useRef();
+  const lastSpawn = useRef(0);
+
+  const LEVELS = [
+    { label: 'Tân Binh', color: 'bg-teal-400', speed: 1.2, rate: 1800 },
+    { label: 'Chiến Binh', color: 'bg-orange-500', speed: 1.8, rate: 1300 },
+    { label: 'Huyền Thoại', color: 'bg-rose-500', speed: 2.8, rate: 900 },
+  ];
+
+  const shuffle = (array) => {
+    const newArr = [...array];
+    for (let i = newArr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
+    }
+    return newArr;
+  };
+
+  const getNextQuiz = () => {
+    if (quizQueue.current.length === 0) quizQueue.current = shuffle(MASTER_QUIZ_BANK);
+    return quizQueue.current.pop();
+  };
+
+  const startGameWithLevel = (idx) => {
+    playSound('click');
+    setActiveLevelIdx(idx);
+    setConfig({ speed: LEVELS[idx].speed, spawnRate: LEVELS[idx].rate });
+    setScore(0);
+    setMissedCount(0);
+    setItems([]);
+    itemsRef.current = [];
+    quizQueue.current = shuffle(MASTER_QUIZ_BANK);
+    setGameState('playing');
+    setIsPaused(false);
+    setShieldActive(false);
+    setCurrentQuiz(null);
+  };
+
+  const update = (time) => {
+    if (gameState === 'playing' && !currentQuiz && !isPaused) {
+      if (score >= 500) { setGameState('victory'); return; }
+      if (missedCount >= 5) { setGameState('gameover'); return; }
+
+      if (time - lastSpawn.current > config.spawnRate) {
+        const types = ['acorn', 'acorn', 'rock', 'book', 'shield'];
+        const type = types[Math.floor(Math.random() * types.length)];
+        itemsRef.current.push({
+          id: Math.random(),
+          x: Math.random() * 84 + 8,
+          y: -10,
+          type: type,
+          speed: config.speed + (type === 'rock' ? 0.5 : 0), 
+          rotation: Math.random() * 360
+        });
+        lastSpawn.current = time;
+      }
+
+      itemsRef.current = itemsRef.current.map(item => ({
+        ...item,
+        y: item.y + item.speed,
+        rotation: item.rotation + 2
+      })).filter(item => {
+        const sX = squirrelX.current;
+        const collisionThreshold = (viewMode === 'mobile' ? 12 : 8);
+        const isHit = item.y > 80 && item.y < 90 && Math.abs(item.x - sX) < collisionThreshold;
+
+        if (isHit) {
+          if (item.type === 'acorn') { setScore(s => s + 20); playSound('click'); }
+          if (item.type === 'book') { setCurrentQuiz(getNextQuiz()); }
+          if (item.type === 'shield') { setShieldActive(true); setTimeout(() => setShieldActive(false), 6000); }
+          if (item.type === 'rock' && !shieldActive) { setScore(s => Math.max(0, s - 30)); playSound('wrong'); }
+          return false; 
+        }
+        if (item.y >= 105) {
+            if (item.type === 'acorn') setMissedCount(prev => prev + 1);
+            return false;
+        }
+        return true;
+      });
+      setItems([...itemsRef.current]);
+    }
+    requestRef.current = requestAnimationFrame(update);
+  };
+
+  useEffect(() => {
+    requestRef.current = requestAnimationFrame(update);
+    return () => cancelAnimationFrame(requestRef.current);
+  }, [gameState, isPaused, shieldActive, config, currentQuiz, score, missedCount, viewMode]);
+
+  const handleMove = (e) => {
+    if (gameState !== 'playing' || currentQuiz || isPaused) return;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const rect = gameRef.current.getBoundingClientRect();
+    
+    let playAreaX, playAreaWidth;
+    if (viewMode === 'desktop') {
+        const sidebarWidth = 280;
+        playAreaX = clientX - rect.left - sidebarWidth;
+        playAreaWidth = rect.width - sidebarWidth;
+    } else {
+        playAreaX = clientX - rect.left;
+        playAreaWidth = rect.width;
+    }
+    
+    let xPercent = (playAreaX / playAreaWidth) * 100;
+    xPercent = Math.max(8, Math.min(92, xPercent));
+    squirrelX.current = xPercent;
+    if (squirrelRef.current) squirrelRef.current.style.left = `${xPercent}%`;
+  };
+
+  const handleQuizAnswer = (ans) => {
+    if (ans === currentQuiz.a) {
+      setScore(s => s + 100);
+      setQuizFeedback('correct');
+      playSound('correct');
+    } else {
+      setQuizFeedback('wrong');
+      playSound('wrong');
+    }
+    setTimeout(() => {
+      setQuizFeedback(null);
+      setCurrentQuiz(null);
+    }, 800);
+  };
+
+  const activeLevel = LEVELS[activeLevelIdx];
+
+  return (
+    <div className="fixed inset-0 bg-[#050a05] flex items-center justify-center p-0 md:p-4 touch-none select-none overflow-hidden font-sans text-white transition-all">
+      
+      {/* Device Mode Switcher - CHỈ xuất hiện ở màn hình Menu (màn hình đầu tiên) */}
+      {gameState === 'menu' && (
+        <div className="absolute top-4 right-4 z-[300] flex gap-2 bg-black/50 p-1.5 rounded-2xl border border-white/10 backdrop-blur-md">
+          <button 
+            onClick={() => { setViewMode('mobile'); playSound('click'); }} 
+            className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition-all ${viewMode === 'mobile' ? 'bg-orange-500 text-white' : 'text-white/40 hover:text-white'}`}
+          >
+            <i className="fa-solid fa-mobile-screen-button"></i> Mobile
+          </button>
+          <button 
+            onClick={() => { setViewMode('desktop'); playSound('click'); }} 
+            className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition-all ${viewMode === 'desktop' ? 'bg-orange-500 text-white' : 'text-white/40 hover:text-white'}`}
+          >
+            <i className="fa-solid fa-desktop"></i> Desktop
+          </button>
+        </div>
+      )}
+
+      <div 
+        ref={gameRef}
+        className={`relative bg-white/5 overflow-hidden shadow-[0_32px_64px_rgba(0,0,0,0.8)] flex border border-white/10 transition-all duration-500
+          ${viewMode === 'desktop' ? 'w-full h-full max-w-[1100px] max-h-[800px] rounded-[3.5rem]' : 'w-full max-w-[450px] h-full rounded-none md:rounded-[3rem] md:h-[90vh]'}`}
+        onMouseMove={handleMove}
+        onTouchMove={handleMove}
+      >
+        {/* --- SIDEBAR (Desktop Only) --- */}
+        {gameState === 'playing' && viewMode === 'desktop' && (
+          <div className="relative z-[70] w-[280px] h-full p-8 flex flex-col gap-5 bg-black/40 backdrop-blur-3xl border-r border-white/10">
+            <div className="flex flex-col items-center mb-4 bg-white/5 py-6 rounded-3xl border border-white/5">
+              <div className="w-20 h-20 mb-3"><SquirrelAvatar /></div>
+              <div className="text-xs font-bold text-emerald-400 italic">Màn: {activeLevel.label}</div>
+            </div>
+            
+            <div className="flex flex-col gap-2 text-center">
+               <h3 className="text-[9px] font-black tracking-[0.3em] text-white/30 uppercase">CHẾ ĐỘ</h3>
+               <div className={`py-3 px-5 rounded-2xl border bg-white/15 border-white/30 flex items-center gap-4 justify-center`}>
+                  <div className={`w-2.5 h-2.5 rounded-full ${activeLevel.color}`} />
+                  <span className="text-[11px] font-black uppercase tracking-widest">{activeLevel.label}</span>
+               </div>
+            </div>
+
+            <div className="mt-auto bg-gradient-to-br from-orange-500/20 to-orange-600/10 p-6 rounded-[2.5rem] border border-orange-500/20 text-center shadow-xl">
+               <div className="text-[9px] text-orange-200/50 uppercase font-black tracking-widest mb-2">ĐIỂM SỐ</div>
+               <div className="flex items-center justify-center gap-3">
+                  <span className="text-3xl">🌰</span>
+                  <div className="text-4xl font-black text-white tracking-tighter">{score}</div>
+               </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- PLAY AREA --- */}
+        <div className="relative flex-1 h-full overflow-hidden bg-[#0a1a0a]">
+          <div className="absolute inset-0 bg-cover bg-center opacity-40 transition-opacity" style={{ backgroundImage: `url(https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1200&q=80)` }} />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent z-[5]" />
+
+          {/* HUD Overlay */}
+          {gameState === 'playing' && (
+            <div className="absolute top-6 md:top-8 left-0 w-full px-6 md:px-10 flex justify-between items-center z-[60]">
+               <div className="flex gap-2 p-1 bg-black/60 backdrop-blur-2xl rounded-2xl border border-white/10 shadow-2xl">
+                  <button onClick={() => setIsPaused(!isPaused)} className="w-10 h-10 flex items-center justify-center rounded-xl text-emerald-400 hover:bg-white/10 transition-colors">
+                    <i className={`fa-solid ${isPaused ? 'fa-play' : 'fa-pause'}`}></i>
+                  </button>
+                  <button onClick={() => setGameState('menu')} className="w-10 h-10 flex items-center justify-center rounded-xl text-white/70 hover:bg-white/10 transition-colors">
+                    <i className="fa-solid fa-house"></i>
+                  </button>
+               </div>
+               
+               {viewMode === 'mobile' && (
+                 <div className="bg-orange-500 px-4 py-2 rounded-2xl border border-orange-400 shadow-xl flex items-center gap-2">
+                    <span className="text-lg">🌰</span>
+                    <span className="font-black text-xl leading-none">{score}</span>
+                 </div>
+               )}
+
+               <div className="flex items-center gap-1.5 md:gap-3 bg-black/60 backdrop-blur-2xl px-4 md:px-5 py-2.5 rounded-full border border-white/10 shadow-xl">
+                  {[...Array(5)].map((_, i) => (
+                      <span key={i} className={`text-lg md:text-xl transition-all duration-300 ${i < missedCount ? 'opacity-20 grayscale scale-75' : 'scale-110 drop-shadow-md'}`}>🌰</span>
+                  ))}
+               </div>
+            </div>
+          )}
+
+          {/* Falling Items */}
+          {items.map(item => (
+            <div key={item.id} className="absolute z-20 pointer-events-none" style={{ left: `${item.x}%`, top: `${item.y}%`, transform: `translate(-50%, -50%) rotate(${item.rotation}deg)` }}>
+              <ItemIcon type={item.type} />
+            </div>
+          ))}
+
+          {/* Squirrel Player */}
+          <div ref={squirrelRef} className={`absolute bottom-10 z-40 pointer-events-none transition-transform duration-75 ${viewMode === 'mobile' ? 'w-24 h-24' : 'w-36 h-36'}`} style={{ left: '50%', transform: 'translateX(-50%)' }}>
+            {shieldActive && <div className="absolute inset-[-10px] rounded-full border-[6px] border-cyan-400 border-t-transparent animate-spin opacity-80" />}
+            <SquirrelAvatar />
+          </div>
+
+          {/* --- MENUS --- */}
+          {gameState === 'menu' && (
+            <div className="absolute inset-0 z-[100] bg-[#050a05]/90 backdrop-blur-3xl flex flex-col items-center justify-center text-center p-8">
+              <div className={`${viewMode === 'mobile' ? 'w-32 h-32' : 'w-48 h-48'} mb-6 animate-float`}><SquirrelAvatar /></div>
+              <h1 className={`${viewMode === 'mobile' ? 'text-5xl' : 'text-8xl'} font-black text-white mb-2 italic tracking-tighter uppercase leading-none`}>SÓC NÂU</h1>
+              <p className="text-emerald-400/80 font-bold tracking-widest text-[10px] md:text-xs mb-8">LEARN ENGLISH BY PLAYING</p>
+              <div className="h-1 w-16 bg-orange-500 rounded-full mb-12" />
+              <button onClick={() => setGameState('select')} className="group relative px-12 md:px-20 py-5 md:py-7 bg-white rounded-[1.5rem] md:rounded-[2rem] shadow-[0_15px_30px_rgba(255,255,255,0.1)] transition-all hover:scale-105 active:scale-95">
+                <span className="text-black font-black text-lg md:text-xl uppercase tracking-widest">BẮT ĐẦU</span>
+              </button>
+            </div>
+          )}
+
+          {gameState === 'select' && (
+            <div className="absolute inset-0 z-[110] bg-[#050a05]/95 backdrop-blur-3xl flex flex-col items-center justify-center p-6 md:p-12 overflow-y-auto">
+               <h2 className="text-3xl md:text-4xl font-black mb-8 md:mb-12 uppercase italic tracking-tighter">Chọn Độ Khó</h2>
+               <div className={`grid gap-4 w-full ${viewMode === 'mobile' ? 'grid-cols-1 max-w-xs' : 'grid-cols-3 max-w-[900px]'}`}>
+                  {LEVELS.map((lvl, idx) => (
+                    <button key={lvl.label} onClick={() => startGameWithLevel(idx)} className="group flex flex-col items-center p-6 md:p-10 bg-white/5 border border-white/10 rounded-[2rem] md:rounded-[3rem] transition-all hover:bg-white/10 hover:scale-105 active:scale-95">
+                      <div className={`w-12 h-12 md:w-16 md:h-16 rounded-2xl md:rounded-3xl ${lvl.color} flex items-center justify-center mb-4 md:mb-6 text-xl md:text-2xl shadow-lg`}>
+                        <i className={`fa-solid ${idx === 0 ? 'fa-seedling' : idx === 1 ? 'fa-fire' : 'fa-crown'} text-white/90`}></i>
+                      </div>
+                      <h3 className="text-lg md:text-xl font-black uppercase tracking-wide">{lvl.label}</h3>
+                      <p className="text-[10px] text-white/40 italic uppercase tracking-widest mt-1">Target: 500 Pts</p>
+                    </button>
+                  ))}
+               </div>
+               <button onClick={() => setGameState('menu')} className="mt-8 text-white/30 uppercase text-[10px] font-black tracking-widest hover:text-white transition-colors">Quay lại</button>
+            </div>
+          )}
+
+          {/* Victory View */}
+          {gameState === 'victory' && (
+            <div className="absolute inset-0 z-[200] flex items-center justify-center p-4 md:p-8 animate-fade-in">
+               <div className="absolute inset-0 bg-emerald-600/10 backdrop-blur-xl" />
+               <div className={`relative w-full max-w-md bg-[#0c1f14] rounded-[3.5rem] p-8 md:p-12 border-4 border-emerald-500/30 shadow-[0_40px_100px_rgba(16,185,129,0.3)] text-center animate-bounce-in overflow-hidden`}>
+                  <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-transparent via-emerald-400 to-transparent" />
+                  <div className="relative z-10">
+                    <div className="w-28 h-28 md:w-36 md:h-36 bg-gradient-to-br from-yellow-300 to-amber-600 rounded-[2rem] flex items-center justify-center mx-auto mb-8 shadow-[0_20px_40px_rgba(245,158,11,0.4)] animate-float ring-4 ring-white/20">
+                       <i className="fa-solid fa-trophy text-5xl md:text-6xl text-white drop-shadow-lg"></i>
+                    </div>
+                    <h2 className="text-4xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-emerald-400 mb-2 italic uppercase tracking-tighter">XUẤT SẮC!</h2>
+                    <p className="text-emerald-400/80 font-bold uppercase tracking-[0.4em] text-[10px] mb-8">Nhiệm vụ hoàn thành</p>
+                    <div className="bg-white/5 rounded-3xl p-6 mb-10 border border-white/10 shadow-inner">
+                       <div className="text-[10px] text-white/30 uppercase font-black mb-1 tracking-widest">ĐIỂM ĐẠT ĐƯỢC</div>
+                       <div className="text-5xl font-black text-white drop-shadow-md tracking-tighter">{score}</div>
+                    </div>
+                    <button onClick={() => setGameState('select')} className="group relative w-full py-6 bg-emerald-500 rounded-[2rem] font-black uppercase text-emerald-950 hover:bg-emerald-400 shadow-[0_15px_30px_rgba(16,185,129,0.4)] active:scale-95 transition-all overflow-hidden">
+                      <span className="relative z-10">CHƠI TIẾP</span>
+                      <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-20 transition-opacity" />
+                    </button>
+                  </div>
+               </div>
+            </div>
+          )}
+
+          {/* Game Over View */}
+          {gameState === 'gameover' && (
+            <div className="absolute inset-0 z-[200] flex items-center justify-center p-4 md:p-8 animate-fade-in">
+               <div className="absolute inset-0 bg-red-950/20 backdrop-blur-xl" />
+               <div className="relative w-full max-w-md bg-[#1f0c0c] rounded-[3.5rem] p-8 md:p-12 border-4 border-red-500/30 shadow-[0_40px_100px_rgba(239,68,68,0.3)] text-center animate-bounce-in">
+                  <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-transparent via-red-500 to-transparent" />
+                  <div className="w-24 h-24 md:w-32 md:h-32 mb-8 animate-pulse mx-auto opacity-80"><SquirrelAvatar isDead={true} /></div>
+                  <h2 className="text-4xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-red-500 mb-2 italic uppercase tracking-tighter">THẤT BẠI</h2>
+                  <p className="text-red-400/60 font-bold uppercase tracking-[0.4em] text-[10px] mb-8">Hãy thử lại nhé!</p>
+                  <div className="bg-white/5 rounded-3xl p-6 mb-10 border border-white/10 shadow-inner">
+                      <div className="text-[10px] text-white/30 uppercase font-black mb-1 tracking-widest">KẾT QUẢ</div>
+                      <div className="text-4xl font-black text-white tracking-tighter">{score} ĐIỂM</div>
+                  </div>
+                  <button onClick={() => setGameState('select')} className="group relative w-full py-6 bg-red-600 rounded-[2rem] font-black uppercase text-white hover:bg-red-500 active:scale-95 shadow-[0_15px_30px_rgba(220,38,38,0.4)] transition-all overflow-hidden">
+                    <span className="relative z-10">THỬ LẠI</span>
+                    <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity" />
+                  </button>
+               </div>
+            </div>
+          )}
+
+          {/* Quiz Pop-up */}
+          {currentQuiz && (
+            <div className="absolute inset-0 z-[130] flex items-center justify-center p-4 md:p-6 bg-black/80 backdrop-blur-md animate-fade-in">
+               <div className={`relative w-full max-w-[420px] rounded-[3.5rem] p-1 transition-all duration-500 shadow-2xl animate-bounce-in
+                 ${quizFeedback === 'correct' ? 'bg-emerald-500 shadow-emerald-500/40' : quizFeedback === 'wrong' ? 'bg-red-500 animate-shake shadow-red-500/40' : 'bg-blue-600 shadow-blue-500/40'}`}>
+                  <div className="bg-[#0f172a] rounded-[3.4rem] p-8 md:p-12 flex flex-col items-center">
+                    <div className="absolute -top-12 bg-white rounded-full w-24 h-24 md:w-28 md:h-28 flex items-center justify-center text-5xl md:text-6xl shadow-[0_15px_40px_rgba(0,0,0,0.5)] border-[10px] border-[#0f172a] animate-float">
+                      {currentQuiz.icon}
+                    </div>
+                    <div className="text-blue-400 text-[10px] font-black uppercase tracking-[0.4em] mt-10 mb-2 italic">DỊCH TỪ NÀY:</div>
+                    <h2 className="text-4xl md:text-5xl font-black text-white mb-10 text-center uppercase tracking-tighter italic drop-shadow-md">{currentQuiz.q}</h2>
+                    <div className="grid gap-4 w-full">
+                      {currentQuiz.options.map((ans) => (
+                        <button key={ans} disabled={!!quizFeedback} onClick={() => handleQuizAnswer(ans)}
+                          className={`group relative py-5 md:py-6 px-8 rounded-3xl font-black transition-all border-2 text-sm uppercase tracking-widest overflow-hidden
+                            ${quizFeedback === null ? 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-blue-500/50 text-white' : 
+                              ans === currentQuiz.a ? 'bg-emerald-500 text-white border-transparent scale-105 shadow-xl' : 'bg-red-500/10 text-white/10 border-white/5 scale-95'}
+                          `}
+                        >
+                          <span className="relative z-10">{ans}</span>
+                          {quizFeedback === null && <div className="absolute inset-0 bg-blue-500 opacity-0 group-hover:opacity-10 transition-opacity" />}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+               </div>
+            </div>
+          )}
+
+          {/* Pause Screen */}
+          {isPaused && (
+            <div className="absolute inset-0 z-[150] bg-black/70 backdrop-blur-xl flex items-center justify-center animate-fade-in">
+               <div className="bg-[#0f172a] border-4 border-white/10 p-12 md:p-16 rounded-[4rem] text-center max-w-[340px] w-full mx-4 shadow-[0_50px_100px_rgba(0,0,0,0.6)] animate-bounce-in">
+                  <div className="w-20 h-20 md:w-24 md:h-24 bg-gradient-to-br from-white/10 to-white/5 rounded-3xl flex items-center justify-center mx-auto mb-10 text-3xl md:text-4xl text-emerald-400 shadow-xl border border-white/10"><i className="fa-solid fa-pause"></i></div>
+                  <h2 className="text-4xl font-black mb-10 uppercase italic tracking-tighter text-white">TẠM DỪNG</h2>
+                  <button onClick={() => setIsPaused(false)} className="group relative w-full py-6 bg-white text-black font-black rounded-[2rem] uppercase tracking-widest shadow-2xl active:scale-95 transition-all overflow-hidden">
+                    <span className="relative z-10">TIẾP TỤC</span>
+                    <div className="absolute inset-0 bg-black opacity-0 group-hover:opacity-5 transition-opacity" />
+                  </button>
+               </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes float { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-15px) rotate(2deg); } }
+        .animate-float { animation: float 4s infinite ease-in-out; }
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
+        .animate-shake { animation: shake 0.1s ease-in-out infinite; }
+        @keyframes bounce-in { 0% { transform: scale(0.5); opacity: 0; } 70% { transform: scale(1.08); opacity: 1; } 100% { transform: scale(1); } }
+        .animate-bounce-in { animation: bounce-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+        .animate-fade-in { animation: fade-in 0.4s ease-out; }
+      `}</style>
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+    </div>
+  );
+};
+
+export default App;
+
+```
